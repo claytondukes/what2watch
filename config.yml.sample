@@ -1,0 +1,59 @@
+# Logging settings
+debug_level: 3
+
+openai:
+  key: "your_key"
+  model: "gpt-3.5-turbo"  # Use a faster model for testing
+  max_tokens: 150
+  temperature: 0.7
+  top_p: 1.0
+  max_context_tokens: 4000  # Adjust if using a model with smaller context
+  prompt_buffer_tokens: 500
+
+
+# TVDB API settings
+tvdb:
+  api_key: "your_key"
+  pin: "your_pin"
+
+# Reddit settings for thread extraction
+reddit:
+  flair_url: "https://old.reddit.com/r/television/search/?q=flair%3A%22Weekly+Rec+Thread%22&sort=new&restrict_sr=on&t=week"
+  week_start: "1 week ago"
+  week_end: "today"
+  max_threads: 2  # Reduce the number of threads to process for testing
+  max_top_shows: 5  # Reduce for quicker testing
+
+# Network settings
+network:
+  timeout: 20  # Timeout in seconds for network requests
+
+# User preferences
+preferences:
+  favorite_shows:
+    - Breaking Bad
+    - Game of Thrones
+    - The Mandalorian
+  preferred_genres:
+    - drama
+    - science fiction
+    - thriller
+    - fantasy
+  cast:
+    preferred_cast:
+      - Bryan Cranston
+      - Pedro Pascal
+    avoid_cast:
+      - Kevin Spacey
+  themes:
+    preferred_themes:
+      - anti-heroes
+      - space exploration
+      - dystopian worlds
+    avoid_themes:
+      - romantic comedy
+  avoid_shows:
+    - The Office
+    - Friends
+    - House of Cards
+

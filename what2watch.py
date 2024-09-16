@@ -1,0 +1,526 @@
+#!/usr/bin/env python3
+
+import argparse
+import requests
+import yaml
+import os
+import logging
+import time
+from bs4 import BeautifulSoup
+from dateutil import parser as date_parser
+from openai import OpenAI
+from typing import List, Dict, Optional
+import tiktoken
+from tvdb_v4_official import TVDB
+
+import logging
+
+def setup_logging(log_level):
+    log_format = '%(asctime)s - %(levelname)s - %(message)s'
+    
+    # Directly map input log_level to Python logging levels
+    if log_level == 0:
+        level = logging.CRITICAL
+    elif log_level == 1:
+        level = logging.ERROR
+    elif log_level == 2:
+        level = logging.WARNING
+    elif log_level == 3:
+        level = logging.INFO
+    elif log_level == 4:
+        level = logging.DEBUG
+    else:
+        level = logging.INFO  # Default to INFO if an invalid level is provided
+    
+    # Set the basic configuration
+    logging.basicConfig(level=level, format=log_format)
+    
+    # Configure urllib3 and openai loggers
+    if log_level < 3:  # CRITICAL, ERROR, or WARNING
+        urllib3_level = openai_level = logging.WARNING
+    elif log_level == 3:  # INFO
+        urllib3_level = openai_level = logging.INFO
+    else:  # DEBUG
+        urllib3_level = openai_level = logging.DEBUG
+
+    # Explicitly set logging levels for specific loggers
+    logging.getLogger('urllib3').setLevel(urllib3_level)
+    logging.getLogger('openai').setLevel(openai_level)
+    
+    # Explicitly set logging level for all openai subloggers
+    for name in logging.root.manager.loggerDict:
+        if name.startswith('openai'):
+            logging.getLogger(name).setLevel(openai_level)
+
+    logging.info(f"Logging level set to: {logging.getLevelName(level)}")
+
+def fetch_page_content(url: str, timeout: int, session: requests.Session) -> Optional[str]:
+    try:
+        logging.info(f"Fetching URL: {url}")
+        start_time = time.time()
+        response = session.get(
+            url,
+            headers={'User-Agent': 'Mozilla/5.0'},
+            timeout=timeout
+        )
+        response.raise_for_status()
+        elapsed_time = time.time() - start_time
+        logging.info(
+            f"Successfully fetched content from {url} in "
+            f"{elapsed_time:.2f} seconds"
+        )
+        return response.text
+    except requests.RequestException as e:
+        logging.error(f"Error fetching URL {url}: {e}")
+        return None
+
+def extract_thread_urls(
+    flair_url: str,
+    max_threads: int,
+    timeout: int,
+    session: requests.Session
+) -> List[str]:
+    logging.info(f"Extracting thread URLs from flair URL: {flair_url}")
+    start_time = time.time()
+
+    html_content = fetch_page_content(flair_url, timeout, session)
+    if not html_content:
+        logging.error("Failed to fetch flair URL content")
+        return []
+
+    soup = BeautifulSoup(html_content, 'html.parser')
+    posts = soup.find_all('a', class_='search-title')
+    logging.info(f"Found {len(posts)} posts from flair URL")
+
+    thread_urls = []
+
+    for post in posts[:max_threads]:
+        thread_url = post['href']
+        if not thread_url.startswith('http'):
+            thread_url = f"https://old.reddit.com{thread_url}"
+        logging.info(f"Thread URL: {thread_url}")
+        thread_urls.append(thread_url)
+
+    elapsed_time = time.time() - start_time
+    logging.info(
+        f"Extracted {len(thread_urls)} thread URLs in "
+        f"{elapsed_time:.2f} seconds"
+    )
+    return thread_urls
+
+def num_tokens_from_messages(messages: List[Dict], model: str) -> int:
+    """
+    Returns the number of tokens used by a list of messages.
+    """
+    encoding = tiktoken.encoding_for_model(model)
+    num_tokens = 0
+    for message in messages:
+        num_tokens += 4  # Every message follows <im_start>{role/name}\n{content}<im_end>\n
+        for key, value in message.items():
+            num_tokens += len(encoding.encode(value))
+            if key == 'name':
+                num_tokens += -1  # Role is always required and always 1 token
+    num_tokens += 2  # Every reply is primed with <im_start>assistant
+    return num_tokens
+
+def extract_tv_shows_from_reddit_thread(
+    thread_url: str,
+    openai_config: Dict,
+    openai_client: OpenAI,
+    timeout: int,
+    session: requests.Session
+) -> List[str]:
+    logging.info(f"Extracting TV shows from thread URL: {thread_url}")
+    start_time = time.time()
+
+    logging.info("Fetching page content")
+    html_content = fetch_page_content(thread_url, timeout, session)
+    if not html_content:
+        logging.error(f"Failed to fetch content from {thread_url}")
+        return []
+
+    logging.info("Parsing HTML content")
+    soup = BeautifulSoup(html_content, 'html.parser')
+    comments = soup.find_all('div', class_='md')
+    logging.info(f"Found {len(comments)} comments in thread")
+
+    # Limit comments for testing
+    max_comments = 5  # Adjust this number as needed
+    comments = comments[:max_comments]
+    logging.info(f"Processing {len(comments)} comments")
+
+    all_comments = [comment.get_text() for comment in comments]
+
+    logging.info("Extracting TV shows using GPT")
+    tv_shows = extract_tv_shows_with_gpt(
+        all_comments, openai_config, openai_client
+    )
+
+    elapsed_time = time.time() - start_time
+    logging.info(
+        f"Extracted {len(tv_shows)} TV shows in {elapsed_time:.2f} seconds"
+    )
+    return tv_shows
+
+def extract_tv_shows_with_gpt(
+    comments: List[str],
+    openai_config: Dict,
+    openai_client: OpenAI
+) -> List[str]:
+    logging.info("Entered extract_tv_shows_with_gpt")
+    start_time = time.time()
+
+    model = openai_config['model']
+    max_tokens = openai_config.get('max_tokens', 150)
+    temperature = openai_config.get('temperature', 0.7)
+    top_p = openai_config.get('top_p', 1.0)
+    max_context_tokens = openai_config.get('max_context_tokens', 8000)
+    prompt_buffer_tokens = openai_config.get('prompt_buffer_tokens', 1000)
+
+    # Define the maximum tokens we can use for the prompt
+    max_prompt_tokens = max_context_tokens - max_tokens - prompt_buffer_tokens
+
+    encoding = tiktoken.encoding_for_model(model)
+
+    tv_shows = set()
+    batch_comments = []
+    batch_tokens = 0
+
+    logging.info(f"Total comments to process: {len(comments)}")
+
+    for comment in comments:
+        logging.debug(f"Processing comment: {comment[:50]}...")
+        comment_tokens = len(encoding.encode(comment))
+        if batch_tokens + comment_tokens > max_prompt_tokens:
+            # Process the current batch
+            batch_tv_shows = process_comment_batch_with_gpt(
+                batch_comments, model, max_tokens, temperature, top_p,
+                openai_client
+            )
+            tv_shows.update(batch_tv_shows)
+            # Reset batch
+            batch_comments = [comment]
+            batch_tokens = comment_tokens
+        else:
+            batch_comments.append(comment)
+            batch_tokens += comment_tokens
+
+    # Process any remaining comments
+    if batch_comments:
+        batch_tv_shows = process_comment_batch_with_gpt(
+            batch_comments, model, max_tokens, temperature, top_p,
+            openai_client
+        )
+        tv_shows.update(batch_tv_shows)
+
+    elapsed_time = time.time() - start_time
+    logging.info(
+        f"Extracted {len(tv_shows)} unique TV shows using GPT in "
+        f"{elapsed_time:.2f} seconds"
+    )
+    return list(tv_shows)
+
+def process_comment_batch_with_gpt(
+    batch_comments: List[str],
+    model: str,
+    max_tokens: int,
+    temperature: float,
+    top_p: float,
+    openai_client: OpenAI
+) -> List[str]:
+    combined_comments = "\n".join(batch_comments)
+    prompt = (
+        "Given the following list of comments from a Reddit thread about TV shows, "
+        "extract and return a list of unique TV show names mentioned. "
+        "Ignore any other text that isn't a TV show name.\n\n"
+        "Comments:\n"
+        f"{combined_comments}\n\n"
+        "Return the list of TV show names, one per line."
+    )
+    try:
+        logging.info("Preparing prompt for OpenAI API")
+        messages = [
+            {
+                "role": "system",
+                "content": "You are a helpful assistant that extracts TV show names from text."
+            },
+            {
+                "role": "user",
+                "content": prompt
+            },
+        ]
+        # Estimate total tokens
+        total_tokens = num_tokens_from_messages(messages, model) + max_tokens
+        if total_tokens > 8192:
+            logging.warning("Batch prompt is too long, skipping this batch.")
+            return []
+
+        logging.info("Calling OpenAI API")
+        response = openai_client.chat.completions.create(
+            model=model,
+            messages=messages,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            top_p=top_p
+        )
+        logging.info("Received response from OpenAI API")
+        batch_tv_shows = response.choices[0].message.content.strip().split('\n')
+        batch_tv_shows = [show.strip() for show in batch_tv_shows if show.strip()]
+        return batch_tv_shows
+    except Exception as e:
+        logging.error(f"Error with OpenAI API: {e}")
+        return []
+
+def fetch_tvdb_details(
+    show_name: str,
+    tvdb_client: TVDB
+) -> Optional[Dict]:
+    logging.info(f"Fetching TVDB details for show: {show_name}")
+    start_time = time.time()
+
+    try:
+        # Search for the TV show
+        logging.info(f"Searching for TV show '{show_name}' in TVDB")
+        search_results = tvdb_client.search(show_name, type="series")
+
+        if not search_results:
+            logging.warning(f"No TVDB results found for {show_name}")
+            return None
+
+        # Get the first result
+        series_data = search_results[0]
+
+        # Extract relevant information
+        title = series_data.get('name', 'Unknown Title')
+        overview = series_data.get('overview', 'No overview available.')
+        year = series_data.get('year', 'Unknown Year')
+
+        tvdb_details = {
+            'title': title,
+            'overview': overview,
+            'year': year
+        }
+
+        elapsed_time = time.time() - start_time
+        logging.info(
+            f"Fetched TVDB details for {show_name} in {elapsed_time:.2f} seconds: "
+            f"{tvdb_details}"
+        )
+        return tvdb_details
+    except Exception as e:
+        logging.error(f"Error fetching TVDB details for {show_name}: {e}")
+        return None
+
+def load_config(config_file: str) -> Dict:
+    logging.info(f"Loading config from file: {config_file}")
+    start_time = time.time()
+
+    if os.path.exists(config_file):
+        with open(config_file, 'r') as f:
+            config = yaml.safe_load(f)
+        elapsed_time = time.time() - start_time
+        logging.info(
+            f"Loaded config in {elapsed_time:.2f} seconds: {config}"
+        )
+        return config
+    logging.error(f"Config file not found: {config_file}")
+    return {}
+
+def analyze_with_openai(
+    show_list: List[Dict],
+    preferences: Dict,
+    openai_config: Dict,
+    openai_client: OpenAI
+) -> str:
+    logging.info("Generating recommendations using OpenAI")
+    start_time = time.time()
+
+    model = openai_config['model']
+    max_tokens = openai_config.get('max_tokens', 150)
+    temperature = openai_config.get('temperature', 0.7)
+    top_p = openai_config.get('top_p', 1.0)
+    max_context_tokens = openai_config.get('max_context_tokens', 8000)
+    prompt_buffer_tokens = openai_config.get('prompt_buffer_tokens', 1000)
+
+    # Define the maximum tokens we can use for the prompt
+    max_prompt_tokens = max_context_tokens - max_tokens - prompt_buffer_tokens
+
+    encoding = tiktoken.encoding_for_model(model)
+
+    # Build the initial prompt
+    prompt_header = (
+        "You are given a list of TV shows and some preferences about "
+        "what the user likes and dislikes. Please recommend which "
+        "shows the user should watch based on their preferences.\n\n"
+    )
+    recommendations_header = "\n\nRecommendations:"
+
+    # Build the TV shows list, adding one by one until the token limit is reached
+    tv_show_list_str = ''
+    for show in show_list:
+        show_info = (
+            f"Title: {show['title']} ({show['year']})\n"
+            f"Overview: {show['overview']}\n\n"
+        )
+        temp_prompt = (
+            prompt_header +
+            f"TV Shows:\n{tv_show_list_str + show_info}"
+            f"User Preferences:\n{preferences}{recommendations_header}"
+        )
+        messages = [
+            {"role": "system", "content": "You are a helpful assistant."},
+            {"role": "user", "content": temp_prompt}
+        ]
+        total_tokens = num_tokens_from_messages(messages, model) + max_tokens
+        logging.debug(f"Total tokens with current show: {total_tokens}")
+        if total_tokens > max_prompt_tokens:
+            # Stop adding more shows
+            logging.error("Reached max token limit, stopping addition of shows")
+            break
+        else:
+            tv_show_list_str += show_info
+
+    # Build the final prompt
+    prompt = (
+        prompt_header +
+        f"TV Shows:\n{tv_show_list_str}"
+        f"User Preferences:\n{preferences}{recommendations_header}"
+    )
+    messages = [
+        {"role": "system", "content": "You are a helpful assistant."},
+        {"role": "user", "content": prompt}
+    ]
+
+    try:
+        logging.info("Calling OpenAI API for recommendations")
+        response = openai_client.chat.completions.create(
+            model=model,
+            messages=messages,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            top_p=top_p
+        )
+        logging.info("Received response from OpenAI API")
+        recommendations = response.choices[0].message.content.strip()
+        elapsed_time = time.time() - start_time
+        logging.info(
+            f"Generated OpenAI recommendations in {elapsed_time:.2f} seconds"
+        )
+        return recommendations
+    except Exception as e:
+        logging.error(f"Error with OpenAI API: {e}")
+        return "Could not generate recommendations due to an error."
+
+def get_session_with_retries(
+    retries: int,
+    backoff_factor: float,
+    status_forcelist: List[int]
+) -> requests.Session:
+    session = requests.Session()
+    retry = requests.packages.urllib3.util.retry.Retry(
+        total=retries,
+        read=retries,
+        connect=retries,
+        backoff_factor=backoff_factor,
+        status_forcelist=status_forcelist
+    )
+    adapter = requests.adapters.HTTPAdapter(max_retries=retry)
+    session.mount('https://', adapter)
+    session.mount('http://', adapter)
+    return session
+
+def process_urls(thread_urls: List[str], config: Dict, tvdb_client: TVDB) -> str:
+    logging.info(f"Processing {len(thread_urls)} thread URLs")
+    start_time = time.time()
+
+    # Initialize OpenAI client
+    openai_client = OpenAI(api_key=config['openai']['key'])
+
+    timeout = config['network'].get('timeout', 10)
+
+    # Create a session with retries
+    session = get_session_with_retries(
+        retries=3,
+        backoff_factor=0.3,
+        status_forcelist=[500, 502, 504]
+    )
+
+    all_shows = []
+    for url in thread_urls:
+        logging.info(f"Processing thread URL: {url}")
+        shows = extract_tv_shows_from_reddit_thread(
+            url, config['openai'], openai_client, timeout, session
+        )
+        logging.info(f"Extracted shows from {url}: {shows}")
+
+        for show in shows:
+            tvdb_details = fetch_tvdb_details(show, tvdb_client)
+            if tvdb_details:
+                all_shows.append(tvdb_details)
+            else:
+                logging.warning(f"Could not fetch TVDB details for {show}")
+
+    max_top_shows = config['reddit']['max_top_shows']
+    top_shows = all_shows[:max_top_shows]
+    logging.info(f"Top {max_top_shows} shows for recommendation: {top_shows}")
+
+    if not top_shows:
+        logging.error("No valid shows found for recommendations")
+        return "Could not generate recommendations due to lack of valid show data."
+
+    recommendations = analyze_with_openai(
+        top_shows, config['preferences'], config['openai'], openai_client
+    )
+    elapsed_time = time.time() - start_time
+    logging.info(
+        f"Processed all URLs and generated recommendations in "
+        f"{elapsed_time:.2f} seconds"
+    )
+    return recommendations
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Reddit TV Show Recommender")
+    parser.add_argument(
+        '-c', '--config', default='config.yml',
+        help="YAML config file with settings"
+    )
+
+    args = parser.parse_args()
+
+    config = load_config(args.config)
+    setup_logging(config.get('debug_level', 0))
+
+    try:
+        overall_start_time = time.time()
+        timeout = config['network'].get('timeout', 10)
+        max_threads = config['reddit'].get('max_threads', 2)  # Reduced for testing
+
+        # Initialize TVDB client
+        tvdb_api_key = config['tvdb']['api_key']
+        tvdb_pin = config['tvdb']['pin']
+        tvdb_client = TVDB(tvdb_api_key, pin=tvdb_pin)
+
+        session = get_session_with_retries(
+            retries=3,
+            backoff_factor=0.3,
+            status_forcelist=[500, 502, 504]
+        )
+        thread_urls = extract_thread_urls(
+            config['reddit']['flair_url'],
+            max_threads,
+            timeout,
+            session
+        )
+        if not thread_urls:
+            logging.error("No thread URLs found. Exiting.")
+            exit(1)
+
+        recommendations = process_urls(thread_urls, config, tvdb_client)
+        overall_elapsed_time = time.time() - overall_start_time
+        logging.info(
+            f"Total script execution time: {overall_elapsed_time:.2f} seconds"
+        )
+        print(recommendations)
+    except Exception as e:
+        logging.error(f"An unexpected error occurred: {e}")
+        exit(1)

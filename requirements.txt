@@ -1,0 +1,6 @@
+PyYAML
+openai
+beautifulsoup4
+tiktoken
+tvdb_v4_official
+
