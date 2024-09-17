@@ -484,10 +484,8 @@ def read_processed_shows(file_path: str) -> Dict[str, List[Dict]]:
 def write_processed_shows(file_path: str, shows: Dict[str, List[Dict]]):
     logging.debug(f"Attempting to write processed shows to {file_path}")
     logging.debug(f"Data to be written: {shows}")
-    
     with open(file_path, 'w') as f:
-        yaml.dump(shows, f, default_flow_style=False, sort_keys=False, allow_unicode=True, width=1000)
-    
+        yaml.dump(shows, f, default_flow_style=False, sort_keys=False, allow_unicode=True, width=1000, indent=2)
     logging.debug(f"Finished writing to {file_path}")
     # Read back the file contents to verify
     with open(file_path, 'r') as f:
@@ -511,30 +509,50 @@ def update_processed_shows(processed_shows: Dict[str, List[Dict]], new_recommend
         line = line.strip()
         logging.debug(f"Processing line: {line}")
 
-        if line == "### Recommended Shows:":
-            current_category = "recommendations"
-        elif line == "### Shows to Avoid:":
+        if "Shows to **Avoid**" in line:
             current_category = "avoid"
-        elif line.startswith(("1.", "2.", "3.", "4.", "5.", "6.")) and "**" in line:
+        elif line.startswith(("1.", "2.", "3.", "4.", "5.")) and "**" in line:
             if current_show:
                 new_shows[current_category].append(current_show)
                 current_show = {}
             show_name = line.split("**")[1].strip()
             current_show = {"title": show_name}
-        elif line.startswith("- **Overview:**") and current_show:
-            current_show["overview"] = line.split(":**", 1)[1].strip()
-        elif line.startswith("- **Reasons:**") and current_category == "recommendations":
-            current_show["reason_for_recommendation"] = line.split(":**", 1)[1].strip()
-        elif line.startswith("- **Reasons:**") and current_category == "avoid":
-            current_show["reason_to_avoid"] = line.split(":**", 1)[1].strip()
+            if current_category is None:
+                current_category = "recommendations"
+        elif line.startswith("- **Overview**:") and current_show:
+            current_show["overview"] = line.split(":", 1)[1].strip()
+        elif line.startswith("- **Why**:") and current_show:
+            if current_category == "recommendations":
+                current_show["reason_for_recommendation"] = line.split(":", 1)[1].strip()
+            else:
+                current_show["reason_to_avoid"] = line.split(":", 1)[1].strip()
 
     if current_show:
         new_shows[current_category].append(current_show)
 
     logging.debug(f"Parsed new shows: {new_shows}")
 
-    # Replace the entire processed_shows with new_shows
-    processed_shows = new_shows
+    # Create sets of existing show titles
+    existing_recommendations = set(show['title'] for show in processed_shows['recommendations'])
+    existing_avoid = set(show['title'] for show in processed_shows['avoid'])
+
+    # Add new recommendations
+    for show in new_shows['recommendations']:
+        if show['title'] not in existing_recommendations:
+            processed_shows['recommendations'].append(show)
+            logging.debug(f"Added new recommendation: {show['title']}")
+        if show['title'] in existing_avoid:
+            processed_shows['avoid'] = [s for s in processed_shows['avoid'] if s['title'] != show['title']]
+            logging.debug(f"Removed {show['title']} from avoid list")
+
+    # Add new shows to avoid
+    for show in new_shows['avoid']:
+        if show['title'] not in existing_avoid:
+            processed_shows['avoid'].append(show)
+            logging.debug(f"Added new show to avoid: {show['title']}")
+        if show['title'] in existing_recommendations:
+            processed_shows['recommendations'] = [s for s in processed_shows['recommendations'] if s['title'] != show['title']]
+            logging.debug(f"Removed {show['title']} from recommendations list")
 
     logging.debug(f"Updated processed shows: {processed_shows}")
     return processed_shows
@@ -547,19 +565,28 @@ def process_shows(shows: List[str], config: Dict, tvdb_client: TVDB, processed_s
     openai_client = OpenAI(api_key=config['openai']['key'])
 
     all_shows = []
-    processed_show_names = set(
-        show['name'].split(' (')[0] for category in processed_shows.values() for show in category
-    )
+    processed_show_names = set()
+    for category in processed_shows.values():
+        for show in category:
+            if isinstance(show, dict) and 'title' in show:
+                processed_show_names.add(show['title'].split(' (')[0])
+            elif isinstance(show, str):
+                processed_show_names.add(show.split(' (')[0])
+            else:
+                logging.warning(f"Unexpected show format in processed shows: {show}")
 
     for show in shows:
-        if show in processed_show_names:
-            logging.info(f"Skipping already processed show: {show}")
-            continue
-        tvdb_details = fetch_tvdb_details(show, tvdb_client)
-        if tvdb_details:
-            all_shows.append(tvdb_details)
-        else:
-            logging.warning(f"Could not fetch TVDB details for {show}")
+        try:
+            if show in processed_show_names:
+                logging.info(f"Skipping already processed show: {show}")
+                continue
+            tvdb_details = fetch_tvdb_details(show, tvdb_client)
+            if tvdb_details:
+                all_shows.append(tvdb_details)
+            else:
+                logging.warning(f"Could not fetch TVDB details for {show}")
+        except Exception as e:
+            logging.error(f"Error processing show '{show}': {str(e)}")
 
     max_top_shows = config['reddit']['max_top_shows']
     top_shows = all_shows[:max_top_shows]
@@ -569,15 +596,21 @@ def process_shows(shows: List[str], config: Dict, tvdb_client: TVDB, processed_s
         logging.error("No valid shows found for recommendations")
         return "Could not generate recommendations due to lack of valid show data."
 
-    recommendations = analyze_with_openai(
-        top_shows, config['preferences'], config['openai'], openai_client
-    )
+    try:
+        recommendations = analyze_with_openai(
+            top_shows, config['preferences'], config['openai'], openai_client
+        )
+    except Exception as e:
+        logging.error(f"Error generating recommendations: {str(e)}")
+        return "Could not generate recommendations due to an error."
+
     elapsed_time = time.time() - start_time
     logging.info(
         f"Processed all shows and generated recommendations in "
         f"{elapsed_time:.2f} seconds"
     )
     return recommendations
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="TV Show Recommender")
     parser.add_argument('-c', '--config', default='config.yml', help="YAML config file with settings")
@@ -606,6 +639,9 @@ if __name__ == "__main__":
 
         if args.source:
             shows = read_shows_from_file(args.source)
+            logging.debug(f"Contents of {args.source}:")
+            with open(args.source, 'r') as f:
+                logging.debug(f.read())
         else:
             timeout = config['network'].get('timeout', 10)
             max_threads = config['reddit'].get('max_threads', 2)
