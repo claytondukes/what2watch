@@ -52,6 +52,12 @@ def setup_logging(log_level):
         if name.startswith('openai'):
             logging.getLogger(name).setLevel(openai_level)
 
+    if log_level == 4:
+        logging.getLogger().setLevel(logging.DEBUG)
+
+    logging.debug(f"Root logger level: {logging.getLogger().getEffectiveLevel()}")
+    logging.debug(f"urllib3 logger level: {logging.getLogger('urllib3').getEffectiveLevel()}")
+    logging.debug(f"openai logger level: {logging.getLogger('openai').getEffectiveLevel()}")
     logging.info(f"Logging level set to: {logging.getLevelName(level)}")
 
 def fetch_page_content(url: str, timeout: int, session: requests.Session) -> Optional[str]:
@@ -436,18 +442,104 @@ def read_shows_from_file(file_path: str) -> List[str]:
     logging.info(f"Read {len(shows)} shows from file")
     return shows
 
-def read_processed_shows(file_path: str) -> Set[str]:
+
+def read_processed_shows(file_path: str) -> Dict[str, List[Dict]]:
+    logging.debug(f"Attempting to read processed shows from {file_path}")
     if not os.path.exists(file_path):
-        return set()
+        logging.debug(f"File {file_path} does not exist. Returning empty structure.")
+        return {
+            "recommendations": [],
+            "avoid": []
+        }
     with open(file_path, 'r') as f:
-        return set(line.strip() for line in f if line.strip())
-
-def write_processed_shows(file_path: str, shows: Set[str]):
+        content = f.read()
+        logging.debug(f"Content read from {file_path}: {content}")
+        if not content.strip():
+            logging.debug(f"File {file_path} is empty. Returning empty structure.")
+            return {
+                "recommendations": [],
+                "avoid": []
+            }
+        try:
+            data = yaml.safe_load(content)
+            logging.debug(f"Parsed YAML data: {data}")
+            if not data or not isinstance(data, dict):
+                logging.warning(f"Invalid data structure in {file_path}. Returning empty structure.")
+                return {
+                    "recommendations": [],
+                    "avoid": []
+                }
+            # Ensure both categories exist
+            if "recommendations" not in data:
+                data["recommendations"] = []
+            if "avoid" not in data:
+                data["avoid"] = []
+            return data
+        except yaml.YAMLError as e:
+            logging.error(f"Error reading YAML file: {e}")
+            return {
+                "recommendations": [],
+                "avoid": []
+            }
+def write_processed_shows(file_path: str, shows: Dict[str, List[Dict]]):
+    logging.debug(f"Attempting to write processed shows to {file_path}")
+    logging.debug(f"Data to be written: {shows}")
+    
     with open(file_path, 'w') as f:
-        for show in shows:
-            f.write(f"{show}\n")
+        yaml.dump(shows, f, default_flow_style=False, sort_keys=False, allow_unicode=True, width=1000)
+    
+    logging.debug(f"Finished writing to {file_path}")
+    # Read back the file contents to verify
+    with open(file_path, 'r') as f:
+        content = f.read()
+        logging.debug(f"Content written to {file_path}: {content}")
 
-def process_shows(shows: List[str], config: Dict, tvdb_client: TVDB, processed_shows: Set[str]) -> str:
+def update_processed_shows(processed_shows: Dict[str, List[Dict]], new_recommendations: str) -> Dict[str, List[Dict]]:
+    logging.debug("Entering update_processed_shows")
+    logging.debug(f"Current processed shows: {processed_shows}")
+    logging.debug(f"New recommendations: {new_recommendations}")
+
+    new_shows = {
+        "recommendations": [],
+        "avoid": []
+    }
+    current_category = None
+    current_show = {}
+
+    lines = new_recommendations.split('\n')
+    for i, line in enumerate(lines):
+        line = line.strip()
+        logging.debug(f"Processing line: {line}")
+
+        if line == "### Recommended Shows:":
+            current_category = "recommendations"
+        elif line == "### Shows to Avoid:":
+            current_category = "avoid"
+        elif line.startswith(("1.", "2.", "3.", "4.", "5.", "6.")) and "**" in line:
+            if current_show:
+                new_shows[current_category].append(current_show)
+                current_show = {}
+            show_name = line.split("**")[1].strip()
+            current_show = {"title": show_name}
+        elif line.startswith("- **Overview:**") and current_show:
+            current_show["overview"] = line.split(":**", 1)[1].strip()
+        elif line.startswith("- **Reasons:**") and current_category == "recommendations":
+            current_show["reason_for_recommendation"] = line.split(":**", 1)[1].strip()
+        elif line.startswith("- **Reasons:**") and current_category == "avoid":
+            current_show["reason_to_avoid"] = line.split(":**", 1)[1].strip()
+
+    if current_show:
+        new_shows[current_category].append(current_show)
+
+    logging.debug(f"Parsed new shows: {new_shows}")
+
+    # Replace the entire processed_shows with new_shows
+    processed_shows = new_shows
+
+    logging.debug(f"Updated processed shows: {processed_shows}")
+    return processed_shows
+
+def process_shows(shows: List[str], config: Dict, tvdb_client: TVDB, processed_shows: Dict[str, List[Dict]]) -> str:
     logging.info(f"Processing {len(shows)} shows")
     start_time = time.time()
 
@@ -455,14 +547,17 @@ def process_shows(shows: List[str], config: Dict, tvdb_client: TVDB, processed_s
     openai_client = OpenAI(api_key=config['openai']['key'])
 
     all_shows = []
+    processed_show_names = set(
+        show['name'].split(' (')[0] for category in processed_shows.values() for show in category
+    )
+
     for show in shows:
-        if show in processed_shows:
+        if show in processed_show_names:
             logging.info(f"Skipping already processed show: {show}")
             continue
         tvdb_details = fetch_tvdb_details(show, tvdb_client)
         if tvdb_details:
             all_shows.append(tvdb_details)
-            processed_shows.add(show)
         else:
             logging.warning(f"Could not fetch TVDB details for {show}")
 
@@ -483,17 +578,16 @@ def process_shows(shows: List[str], config: Dict, tvdb_client: TVDB, processed_s
         f"{elapsed_time:.2f} seconds"
     )
     return recommendations
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="TV Show Recommender")
     parser.add_argument('-c', '--config', default='config.yml', help="YAML config file with settings")
     parser.add_argument('-s', '--source', help="File containing a list of TV shows to process")
-    parser.add_argument('-o', '--output', help="Output file for recommendations")
 
     args = parser.parse_args()
 
     config = load_config(args.config)
     setup_logging(config.get('debug_level', 0))
+    logging.debug("Logging setup complete. This is a debug message.")
 
     try:
         overall_start_time = time.time()
@@ -504,8 +598,11 @@ if __name__ == "__main__":
         tvdb_client = TVDB(tvdb_api_key, pin=tvdb_pin)
 
         # Read processed shows
-        processed_file = config.get('processed_file', 'processed.txt')
+        processed_file = config.get('processed_file', 'processed.yml')
         processed_shows = read_processed_shows(processed_file)
+        logging.debug("Content of processed.md before processing:")
+        with open(processed_file, 'r') as f:
+          logging.debug(f.read())
 
         if args.source:
             shows = read_shows_from_file(args.source)
@@ -532,22 +629,21 @@ if __name__ == "__main__":
 
         recommendations = process_shows(shows, config, tvdb_client, processed_shows)
 
+        # Update processed shows with new recommendations
+        updated_processed_shows = update_processed_shows(processed_shows, recommendations)
+
         # Write updated processed shows
-        write_processed_shows(processed_file, processed_shows)
+        write_processed_shows(processed_file, updated_processed_shows)
+        logging.debug("Content of processed.yml after processing:")
+        with open(processed_file, 'r') as f:
+          logging.debug(f.read())
 
         overall_elapsed_time = time.time() - overall_start_time
         logging.info(
             f"Total script execution time: {overall_elapsed_time:.2f} seconds"
         )
 
-        if args.output:
-            output_file = args.output
-        else:
-            output_file = config.get('default_output', 'results.md')
-
-        with open(output_file, 'w') as f:
-            f.write(recommendations)
-        print(f"Recommendations written to {output_file}")
+        print(f"Recommendations have been updated in {processed_file}")
     except Exception as e:
         logging.error(f"An unexpected error occurred: {e}")
         exit(1)
