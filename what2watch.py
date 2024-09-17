@@ -9,7 +9,7 @@ import time
 from bs4 import BeautifulSoup
 from dateutil import parser as date_parser
 from openai import OpenAI
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Set
 import tiktoken
 from tvdb_v4_official import TVDB
 
@@ -429,36 +429,42 @@ def get_session_with_retries(
     session.mount('http://', adapter)
     return session
 
-def process_urls(thread_urls: List[str], config: Dict, tvdb_client: TVDB) -> str:
-    logging.info(f"Processing {len(thread_urls)} thread URLs")
+def read_shows_from_file(file_path: str) -> List[str]:
+    logging.info(f"Reading shows from file: {file_path}")
+    with open(file_path, 'r') as f:
+        shows = [line.strip() for line in f if line.strip()]
+    logging.info(f"Read {len(shows)} shows from file")
+    return shows
+
+def read_processed_shows(file_path: str) -> Set[str]:
+    if not os.path.exists(file_path):
+        return set()
+    with open(file_path, 'r') as f:
+        return set(line.strip() for line in f if line.strip())
+
+def write_processed_shows(file_path: str, shows: Set[str]):
+    with open(file_path, 'w') as f:
+        for show in shows:
+            f.write(f"{show}\n")
+
+def process_shows(shows: List[str], config: Dict, tvdb_client: TVDB, processed_shows: Set[str]) -> str:
+    logging.info(f"Processing {len(shows)} shows")
     start_time = time.time()
 
     # Initialize OpenAI client
     openai_client = OpenAI(api_key=config['openai']['key'])
 
-    timeout = config['network'].get('timeout', 10)
-
-    # Create a session with retries
-    session = get_session_with_retries(
-        retries=3,
-        backoff_factor=0.3,
-        status_forcelist=[500, 502, 504]
-    )
-
     all_shows = []
-    for url in thread_urls:
-        logging.info(f"Processing thread URL: {url}")
-        shows = extract_tv_shows_from_reddit_thread(
-            url, config['openai'], openai_client, timeout, session
-        )
-        logging.info(f"Extracted shows from {url}: {shows}")
-
-        for show in shows:
-            tvdb_details = fetch_tvdb_details(show, tvdb_client)
-            if tvdb_details:
-                all_shows.append(tvdb_details)
-            else:
-                logging.warning(f"Could not fetch TVDB details for {show}")
+    for show in shows:
+        if show in processed_shows:
+            logging.info(f"Skipping already processed show: {show}")
+            continue
+        tvdb_details = fetch_tvdb_details(show, tvdb_client)
+        if tvdb_details:
+            all_shows.append(tvdb_details)
+            processed_shows.add(show)
+        else:
+            logging.warning(f"Could not fetch TVDB details for {show}")
 
     max_top_shows = config['reddit']['max_top_shows']
     top_shows = all_shows[:max_top_shows]
@@ -473,17 +479,16 @@ def process_urls(thread_urls: List[str], config: Dict, tvdb_client: TVDB) -> str
     )
     elapsed_time = time.time() - start_time
     logging.info(
-        f"Processed all URLs and generated recommendations in "
+        f"Processed all shows and generated recommendations in "
         f"{elapsed_time:.2f} seconds"
     )
     return recommendations
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Reddit TV Show Recommender")
-    parser.add_argument(
-        '-c', '--config', default='config.yml',
-        help="YAML config file with settings"
-    )
+    parser = argparse.ArgumentParser(description="TV Show Recommender")
+    parser.add_argument('-c', '--config', default='config.yml', help="YAML config file with settings")
+    parser.add_argument('-s', '--source', help="File containing a list of TV shows to process")
+    parser.add_argument('-o', '--output', help="Output file for recommendations")
 
     args = parser.parse_args()
 
@@ -492,35 +497,57 @@ if __name__ == "__main__":
 
     try:
         overall_start_time = time.time()
-        timeout = config['network'].get('timeout', 10)
-        max_threads = config['reddit'].get('max_threads', 2)  # Reduced for testing
 
         # Initialize TVDB client
         tvdb_api_key = config['tvdb']['api_key']
         tvdb_pin = config['tvdb']['pin']
         tvdb_client = TVDB(tvdb_api_key, pin=tvdb_pin)
 
-        session = get_session_with_retries(
-            retries=3,
-            backoff_factor=0.3,
-            status_forcelist=[500, 502, 504]
-        )
-        thread_urls = extract_thread_urls(
-            config['reddit']['flair_url'],
-            max_threads,
-            timeout,
-            session
-        )
-        if not thread_urls:
-            logging.error("No thread URLs found. Exiting.")
-            exit(1)
+        # Read processed shows
+        processed_file = config.get('processed_file', 'processed.txt')
+        processed_shows = read_processed_shows(processed_file)
 
-        recommendations = process_urls(thread_urls, config, tvdb_client)
+        if args.source:
+            shows = read_shows_from_file(args.source)
+        else:
+            timeout = config['network'].get('timeout', 10)
+            max_threads = config['reddit'].get('max_threads', 2)
+            session = get_session_with_retries(
+                retries=3,
+                backoff_factor=0.3,
+                status_forcelist=[500, 502, 504]
+            )
+            thread_urls = extract_thread_urls(
+                config['reddit']['flair_url'],
+                max_threads,
+                timeout,
+                session
+            )
+            if not thread_urls:
+                logging.error("No thread URLs found. Exiting.")
+                exit(1)
+            shows = extract_tv_shows_from_reddit_thread(
+                thread_urls[0], config['openai'], OpenAI(api_key=config['openai']['key']), timeout, session
+            )
+
+        recommendations = process_shows(shows, config, tvdb_client, processed_shows)
+
+        # Write updated processed shows
+        write_processed_shows(processed_file, processed_shows)
+
         overall_elapsed_time = time.time() - overall_start_time
         logging.info(
             f"Total script execution time: {overall_elapsed_time:.2f} seconds"
         )
-        print(recommendations)
+
+        if args.output:
+            output_file = args.output
+        else:
+            output_file = config.get('default_output', 'results.md')
+
+        with open(output_file, 'w') as f:
+            f.write(recommendations)
+        print(f"Recommendations written to {output_file}")
     except Exception as e:
         logging.error(f"An unexpected error occurred: {e}")
         exit(1)
