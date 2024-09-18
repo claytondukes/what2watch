@@ -1,0 +1,76 @@
+recommendations:
+- title: Slow Horses (2022)
+  overview: This quick-witted spy drama follows a dysfunctional team of MI5 agents – and their obnoxious boss, the notorious Jackson Lamb – as they navigate the espionage world's smoke and mirrors to defend England from sinister forces.
+  genres:
+  - thriller
+  - drama
+  themes:
+  - spycraft
+  relevance: This show fits the user's interest in spycraft and thriller genres.
+- title: Supacell (2024)
+  overview: When five ordinary South Londoners discover they have extraordinary powers, it's down to one man to bring them together to save the woman he loves.
+  genres:
+  - action
+  - science fiction
+  themes:
+  - anti-heroes
+  relevance: This show matches the user's preference for action and science fiction genres with an anti-heroes theme.
+- title: Shōgun (2024)
+  overview: Set in Japan in the year 1600, at the dawn of a century-defining civil war, Lord Yoshii Toranaga is fighting for his life as his enemies on the Council of Regents unite against him, when a mysterious European ship is found marooned in a nearby fishing village. Its English pilot, John Blackthorne, comes bearing secrets that could help Toranaga tip the scales of power and devastate the formidable influence of Blackthorne’s own enemies — the Jesuit priests and Portuguese merchants. Toranaga’s and Blackthorne’s fates become inextricably tied to their translator, Toda Mariko, a mysterious Christian noblewoman and the last of a disgraced line.
+  genres:
+  - action
+  - drama
+  themes:
+  - anti-heroes
+  relevance: The historical action and anti-heroes theme align with the user's preferences.
+- title: Hacks (2021)
+  overview: The series explores the dark mentorship that forms between Deborah Vance, a legendary Las Vegas comedian, and the entitled, outcast 25-year-old who is hired to write for her.
+  genres:
+  - comedy
+  - drama
+  themes:
+  - anti-heroes
+  relevance: The comedy genre and theme of anti-heroes are in line with the user's likes.
+avoid:
+- title: 파친코 (2022)
+  overview: 뉴욕 타임스 베스트셀러가 원작인 이 대하드라마는 고국을 떠나 억척스럽게 생존과 번영을 추구하는 한인 이민 가족 4대의 꿈과 희망을 기록한다.
+  genres:
+  - drama
+  - history
+  themes:
+  - family saga
+  relevance: The show's focus on family saga and drama does not match the user's preferences.
+- title: Girls5eva (2021)
+  overview: When a one-hit-wonder girl group from the ’90s gets sampled by a young rapper, its members reunite to give their pop star dreams one more shot. They may be grown women balancing spouses, kids, jobs, debt, aging parents, and shoulder pain—but can’t they also be Girls5eva?
+  genres:
+  - comedy
+  - music
+  themes:
+  - romantic comedy
+  relevance: The romantic comedy theme is something the user wants to avoid.
+- title: Baby Reindeer (2024)
+  overview: When a struggling comedian shows one act of kindness to a vulnerable woman, it sparks a suffocating obsession which threatens to wreck both their lives.
+  genres:
+  - drama
+  - thriller
+  themes:
+  - horror
+  - obsession
+  relevance: The horror theme is something the user wants to avoid.
+- title: Interview with the Vampire (2022)
+  overview: 'Based on Anne Rice’s iconic novel, Interview with the Vampire follows Louis de Pointe du Lac’s epic story of love, blood and the perils of immortality, as told to the journalist Daniel Molloy. Chafing at the limitations of life as a Black man in New Orleans in the early 1900s, Louis finds it impossible to resist the rakish Lestat de Lioncourt’s offer of the ultimate escape: joining him as his vampire companion. But Louis’s intoxicating new powers come with a violent price, and the introduction of Lestat’s newest fledgling, the child vampire Claudia, soon sets them on a decades-long path of revenge and atonement.'
+  genres:
+  - horror
+  - fantasy
+  themes:
+  - horror
+  - immortality
+  relevance: The horror theme is something the user wants to avoid.
+- title: X-Men '97 (2024)
+  overview: X-Men '97 revisits the iconic era of the 1990s as The X-Men, a band of mutants who use their uncanny gifts to protect a world that hates and fears them, are challenged like never before, forced to face a dangerous and unexpected new future.
+  genres:
+  - action
+  - animated
+  themes:
+  - superheroes
+  relevance: The show is animated, which the user wants to avoid.

@@ -1,13 +1,14 @@
 # Logging settings
-debug_level: 3
+debug_level: 0
+processed_file: "recommendations.yml"
 
 openai:
   key: "your_key"
-  model: "gpt-3.5-turbo"  # Use a faster model for testing
-  max_tokens: 150
+  model: "gpt-4o"
+  max_tokens: 4096
   temperature: 0.7
   top_p: 1.0
-  max_context_tokens: 4000  # Adjust if using a model with smaller context
+  max_context_tokens: 128000  
   prompt_buffer_tokens: 500
 
 
@@ -18,11 +19,11 @@ tvdb:
 
 # Reddit settings for thread extraction
 reddit:
-  flair_url: "https://old.reddit.com/r/television/search/?q=flair%3A%22Weekly+Rec+Thread%22&sort=new&restrict_sr=on&t=week"
-  week_start: "1 week ago"
+  flair_url: "https://old.reddit.com/r/television/search/?q=flair%3A%22Weekly+Rec+Thread%22&sort=new&restrict_sr=on&t=year"
+  week_start: "3 months ago" # set t=month in the url above or "week", etc.
   week_end: "today"
   max_threads: 2  # Reduce the number of threads to process for testing
-  max_top_shows: 5  # Reduce for quicker testing
+  max_top_shows: 10  # Reduce for quicker testing
 
 # Network settings
 network:
@@ -31,29 +32,43 @@ network:
 # User preferences
 preferences:
   favorite_shows:
-    - Breaking Bad
+    - Tulsa King
     - Game of Thrones
     - The Mandalorian
+    - Seal Team
+    - Last Week Tonight
+    - The Union
+    - Tracker
+    - Mayans M.C.
+    - Justified
+    - Ted Lasso
+    - Snowfall
+    - Yellowstone
   preferred_genres:
-    - drama
+    - action
     - science fiction
     - thriller
     - fantasy
-  cast:
-    preferred_cast:
-      - Bryan Cranston
-      - Pedro Pascal
-    avoid_cast:
-      - Kevin Spacey
+    - comedy
+      #cast:
+      #preferred_cast:
+      #avoid_cast:
   themes:
     preferred_themes:
       - anti-heroes
       - space exploration
-      - dystopian worlds
+      - spycraft
     avoid_themes:
       - romantic comedy
+      - horror
+      - detectives
+      - animated
   avoid_shows:
+    - From
     - The Office
     - Friends
     - House of Cards
-
+    - Awards shows
+    - Reality TV
+    - Rescue
+    - High Potential
