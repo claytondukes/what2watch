@@ -31,6 +31,16 @@ recommendations:
   themes:
   - anti-heroes
   relevance: The comedy genre and theme of anti-heroes are in line with the user's likes.
+- title: X-Men '97 (2024)
+  overview: X-Men '97 revisits the iconic era of the 1990s as The X-Men, a band of mutants who use their uncanny gifts to protect a world that hates and fears them, are challenged like never before, forced to face a dangerous and unexpected new future.
+  genres:
+  - Action
+  - Science Fiction
+  - Fantasy
+  themes:
+  - Anti-heroes
+  - Space exploration
+  relevance: Shares themes of anti-heroes and action similar to favorite shows like 'The Mandalorian' and 'Seal Team'.
 avoid:
 - title: 파친코 (2022)
   overview: 뉴욕 타임스 베스트셀러가 원작인 이 대하드라마는 고국을 떠나 억척스럽게 생존과 번영을 추구하는 한인 이민 가족 4대의 꿈과 희망을 기록한다.
@@ -60,12 +70,12 @@ avoid:
 - title: Interview with the Vampire (2022)
   overview: 'Based on Anne Rice’s iconic novel, Interview with the Vampire follows Louis de Pointe du Lac’s epic story of love, blood and the perils of immortality, as told to the journalist Daniel Molloy. Chafing at the limitations of life as a Black man in New Orleans in the early 1900s, Louis finds it impossible to resist the rakish Lestat de Lioncourt’s offer of the ultimate escape: joining him as his vampire companion. But Louis’s intoxicating new powers come with a violent price, and the introduction of Lestat’s newest fledgling, the child vampire Claudia, soon sets them on a decades-long path of revenge and atonement.'
   genres:
-  - horror
-  - fantasy
+  - Horror
+  - Drama
   themes:
-  - horror
-  - immortality
-  relevance: The horror theme is something the user wants to avoid.
+  - Horror
+  - Immortality
+  relevance: Contains horror elements, which the user prefers to avoid.
 - title: X-Men '97 (2024)
   overview: X-Men '97 revisits the iconic era of the 1990s as The X-Men, a band of mutants who use their uncanny gifts to protect a world that hates and fears them, are challenged like never before, forced to face a dangerous and unexpected new future.
   genres:
@@ -74,3 +84,11 @@ avoid:
   themes:
   - superheroes
   relevance: The show is animated, which the user wants to avoid.
+- title: Mary & George (2024)
+  overview: The story about Mary Villiers, Countess of Buckingham, who in 17th Century England moulded her beautiful son, George, to seduce King James I and become his all-powerful lover. Through outrageous scheming, the pair rose from humble beginnings to become one of the richest, most titled, and influential mother and sons England had ever seen.
+  genres:
+  - Historical Drama
+  themes:
+  - Political intrigue
+  - Romance
+  relevance: Historical drama with themes of political intrigue and romance, which do not align with the user's preferred genres and themes.
