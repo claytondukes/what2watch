@@ -226,56 +226,66 @@ def extract_tv_shows_with_gpt(
     )
     return list(tv_shows)
 
-def process_comment_batch_with_gpt(
-    batch_comments: List[str],
-    model: str,
-    max_tokens: int,
-    temperature: float,
-    top_p: float,
-    openai_client: OpenAI
-) -> List[str]:
-    combined_comments = "\n".join(batch_comments)
-    prompt = (
-        "Given the following list of comments from a Reddit thread about TV shows, "
-        "extract and return a list of unique TV show names mentioned. "
-        "Ignore any other text that isn't a TV show name.\n\n"
-        "Comments:\n"
-        f"{combined_comments}\n\n"
-        "Return the list of TV show names, one per line."
-    )
-    try:
-        logging.info("Preparing prompt for OpenAI API")
-        messages = [
-            {
-                "role": "system",
-                "content": "You are a helpful assistant that extracts TV show names from text."
-            },
-            {
-                "role": "user",
-                "content": prompt
-            },
-        ]
-        # Estimate total tokens
-        total_tokens = num_tokens_from_messages(messages, model) + max_tokens
-        if total_tokens > 8192:
-            logging.warning("Batch prompt is too long, skipping this batch.")
-            return []
+def process_shows(shows: List[str], config: Dict, tvdb_client: TVDB, processed_shows: Dict[str, List[Dict]]) -> str:
+    logging.info(f"Processing {len(shows)} shows")
+    start_time = time.time()
 
-        logging.info("Calling OpenAI API")
-        response = openai_client.chat.completions.create(
-            model=model,
-            messages=messages,
-            max_tokens=max_tokens,
-            temperature=temperature,
-            top_p=top_p
+    # Initialize OpenAI client
+    openai_client = OpenAI(api_key=config['openai']['key'])
+
+    all_shows = []
+    new_shows = []
+    processed_show_names = set()
+    for category in processed_shows.values():
+        for show in category:
+            if isinstance(show, dict) and 'title' in show:
+                processed_show_names.add(show['title'].split(' (')[0])
+                all_shows.append(show)
+            elif isinstance(show, str):
+                processed_show_names.add(show.split(' (')[0])
+            else:
+                logging.warning(f"Unexpected show format in processed shows: {show}")
+
+    for show in shows:
+        try:
+            if show in processed_show_names:
+                logging.info(f"Show already processed: {show}")
+                continue
+            tvdb_details = fetch_tvdb_details(show, tvdb_client)
+            if tvdb_details:
+                all_shows.append(tvdb_details)
+                new_shows.append(tvdb_details)
+            else:
+                logging.warning(f"Could not fetch TVDB details for {show}")
+        except Exception as e:
+            logging.error(f"Error processing show '{show}': {str(e)}")
+
+    max_top_shows = config['reddit']['max_top_shows']
+    top_shows = all_shows[:max_top_shows]
+    logging.info(f"Top {max_top_shows} shows for recommendation: {top_shows}")
+
+    if not new_shows:
+        logging.info("No new shows to process for recommendations")
+        return "No new recommendations to generate."
+
+    if not top_shows:
+        logging.error("No valid shows found for recommendations")
+        return "Could not generate recommendations due to lack of valid show data."
+
+    try:
+        recommendations = analyze_with_openai(
+            top_shows, config['preferences'], config['openai'], openai_client
         )
-        logging.info("Received response from OpenAI API")
-        batch_tv_shows = response.choices[0].message.content.strip().split('\n')
-        batch_tv_shows = [show.strip() for show in batch_tv_shows if show.strip()]
-        return batch_tv_shows
     except Exception as e:
-        logging.error(f"Error with OpenAI API: {e}")
-        return []
+        logging.error(f"Error generating recommendations: {str(e)}")
+        return "Could not generate recommendations due to an error."
+
+    elapsed_time = time.time() - start_time
+    logging.info(
+        f"Processed all shows and generated recommendations in "
+        f"{elapsed_time:.2f} seconds"
+    )
+    return recommendations
 
 def fetch_tvdb_details(
     show_name: str,
@@ -357,7 +367,31 @@ def analyze_with_openai(
     prompt_header = (
         "You are given a list of TV shows and some preferences about "
         "what the user likes and dislikes. Please recommend which "
-        "shows the user should watch based on their preferences.\n\n"
+        "shows the user should watch based on their preferences. "
+        "Please use the following YAML format for your output. "
+        "Do not include any markdown formatting or code block syntax. "
+        "Only respond with the YAML output and no additional commentary. "
+        "YAML format:\n"
+        "recommendations:\n"
+        "  - title: \"Show Title (Year)\"\n"
+        "    overview: \"Show overview...\"\n"
+        "    genres:\n"
+        "      - Genre1\n"
+        "      - Genre2\n"
+        "    themes:\n"
+        "      - Theme1\n"
+        "      - Theme2\n"
+        "    relevance: \"Relevance information...\"\n"
+        "avoid:\n"
+        "  - title: \"Show Title (Year)\"\n"
+        "    overview: \"Show overview...\"\n"
+        "    genres:\n"
+        "      - Genre1\n"
+        "      - Genre2\n"
+        "    themes:\n"
+        "      - Theme1\n"
+        "      - Theme2\n"
+        "    relevance: \"Relevance information...\"\n"
     )
     recommendations_header = "\n\nRecommendations:"
 
@@ -484,8 +518,22 @@ def read_processed_shows(file_path: str) -> Dict[str, List[Dict]]:
 def write_processed_shows(file_path: str, shows: Dict[str, List[Dict]]):
     logging.debug(f"Attempting to write processed shows to {file_path}")
     logging.debug(f"Data to be written: {shows}")
+    
+    def represent_dict_order(self, data):
+        return self.represent_mapping('tag:yaml.org,2002:map', data.items())
+
+    yaml.add_representer(dict, represent_dict_order)
+    
+    def str_presenter(dumper, data):
+        if len(data.splitlines()) > 1:  # check for multiline string
+            return dumper.represent_scalar('tag:yaml.org,2002:str', data, style='|')
+        return dumper.represent_scalar('tag:yaml.org,2002:str', data)
+
+    yaml.add_representer(str, str_presenter)
+    
     with open(file_path, 'w') as f:
         yaml.dump(shows, f, default_flow_style=False, sort_keys=False, allow_unicode=True, width=1000, indent=2)
+    
     logging.debug(f"Finished writing to {file_path}")
     # Read back the file contents to verify
     with open(file_path, 'r') as f:
@@ -495,64 +543,44 @@ def write_processed_shows(file_path: str, shows: Dict[str, List[Dict]]):
 def update_processed_shows(processed_shows: Dict[str, List[Dict]], new_recommendations: str) -> Dict[str, List[Dict]]:
     logging.debug("Entering update_processed_shows")
     logging.debug(f"Current processed shows: {processed_shows}")
-    logging.debug(f"New recommendations: {new_recommendations}")
+    logging.debug(f"New recommendations (raw): {new_recommendations}")
 
-    new_shows = {
-        "recommendations": [],
-        "avoid": []
-    }
-    current_category = None
-    current_show = {}
+    # Clean up the GPT output
+    cleaned_recommendations = new_recommendations.strip()
+    if cleaned_recommendations.startswith("```yaml"):
+        cleaned_recommendations = cleaned_recommendations[7:]  # Remove ```yaml
+    if cleaned_recommendations.endswith("```"):
+        cleaned_recommendations = cleaned_recommendations[:-3]  # Remove ```
+    cleaned_recommendations = cleaned_recommendations.strip()
 
-    lines = new_recommendations.split('\n')
-    for i, line in enumerate(lines):
-        line = line.strip()
-        logging.debug(f"Processing line: {line}")
+    logging.debug(f"Cleaned recommendations: {cleaned_recommendations}")
 
-        if "Shows to **Avoid**" in line:
-            current_category = "avoid"
-        elif line.startswith(("1.", "2.", "3.", "4.", "5.")) and "**" in line:
-            if current_show:
-                new_shows[current_category].append(current_show)
-                current_show = {}
-            show_name = line.split("**")[1].strip()
-            current_show = {"title": show_name}
-            if current_category is None:
-                current_category = "recommendations"
-        elif line.startswith("- **Overview**:") and current_show:
-            current_show["overview"] = line.split(":", 1)[1].strip()
-        elif line.startswith("- **Why**:") and current_show:
-            if current_category == "recommendations":
-                current_show["reason_for_recommendation"] = line.split(":", 1)[1].strip()
-            else:
-                current_show["reason_to_avoid"] = line.split(":", 1)[1].strip()
+    try:
+        new_shows = yaml.safe_load(cleaned_recommendations)
+        logging.debug(f"Parsed new shows: {new_shows}")
 
-    if current_show:
-        new_shows[current_category].append(current_show)
+        if not isinstance(new_shows, dict) or not all(key in new_shows for key in ['recommendations', 'avoid']):
+            raise ValueError("Parsed YAML does not have the expected structure")
 
-    logging.debug(f"Parsed new shows: {new_shows}")
+        # Update processed_shows with new entries
+        for category in ['recommendations', 'avoid']:
+            for show in new_shows[category]:
+                existing_show = next((s for s in processed_shows[category] if s['title'] == show['title']), None)
+                if existing_show:
+                    existing_show.update(show)
+                    logging.debug(f"Updated existing show in {category}: {show['title']}")
+                else:
+                    processed_shows[category].append(show)
+                    logging.debug(f"Added new show to {category}: {show['title']}")
 
-    # Create sets of existing show titles
-    existing_recommendations = set(show['title'] for show in processed_shows['recommendations'])
-    existing_avoid = set(show['title'] for show in processed_shows['avoid'])
-
-    # Add new recommendations
-    for show in new_shows['recommendations']:
-        if show['title'] not in existing_recommendations:
-            processed_shows['recommendations'].append(show)
-            logging.debug(f"Added new recommendation: {show['title']}")
-        if show['title'] in existing_avoid:
-            processed_shows['avoid'] = [s for s in processed_shows['avoid'] if s['title'] != show['title']]
-            logging.debug(f"Removed {show['title']} from avoid list")
-
-    # Add new shows to avoid
-    for show in new_shows['avoid']:
-        if show['title'] not in existing_avoid:
-            processed_shows['avoid'].append(show)
-            logging.debug(f"Added new show to avoid: {show['title']}")
-        if show['title'] in existing_recommendations:
-            processed_shows['recommendations'] = [s for s in processed_shows['recommendations'] if s['title'] != show['title']]
-            logging.debug(f"Removed {show['title']} from recommendations list")
+    except yaml.YAMLError as e:
+        logging.error(f"Error parsing cleaned recommendations as YAML: {e}")
+        logging.error(f"Problematic content: {cleaned_recommendations}")
+    except ValueError as e:
+        logging.error(f"Error in YAML structure: {e}")
+        logging.error(f"Parsed content: {new_shows}")
+    except Exception as e:
+        logging.error(f"Unexpected error updating processed shows: {e}")
 
     logging.debug(f"Updated processed shows: {processed_shows}")
     return processed_shows
@@ -662,24 +690,23 @@ if __name__ == "__main__":
             shows = extract_tv_shows_from_reddit_thread(
                 thread_urls[0], config['openai'], OpenAI(api_key=config['openai']['key']), timeout, session
             )
-
         recommendations = process_shows(shows, config, tvdb_client, processed_shows)
+        if recommendations != "No new recommendations to generate.":
+            updated_processed_shows = update_processed_shows(processed_shows, recommendations)
+            write_processed_shows(processed_file, updated_processed_shows)
+            logging.debug("Content of processed.yml after processing:")
+            with open(processed_file, 'r') as f:
+                logging.debug(f.read())
 
-        # Update processed shows with new recommendations
-        updated_processed_shows = update_processed_shows(processed_shows, recommendations)
-
-        # Write updated processed shows
-        write_processed_shows(processed_file, updated_processed_shows)
-        logging.debug("Content of processed.yml after processing:")
-        with open(processed_file, 'r') as f:
-          logging.debug(f.read())
+            print(f"Recommendations have been updated in {processed_file}")
+        else:
+            print("No new recommendations were generated.")
 
         overall_elapsed_time = time.time() - overall_start_time
         logging.info(
             f"Total script execution time: {overall_elapsed_time:.2f} seconds"
         )
 
-        print(f"Recommendations have been updated in {processed_file}")
     except Exception as e:
         logging.error(f"An unexpected error occurred: {e}")
         exit(1)
