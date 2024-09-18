@@ -41,6 +41,39 @@ recommendations:
   - Anti-heroes
   - Space exploration
   relevance: Shares themes of anti-heroes and action similar to favorite shows like 'The Mandalorian' and 'Seal Team'.
+- title: American Sports Story (2024)
+  overview: An anthology focused on prominent events involving a sports figure, re-examined through the prism of today’s world and telling the story from multiple perspectives.
+  genres:
+  - Drama
+  themes:
+  - Sports
+  - Real-life events
+  relevance: Engaging narrative and real-life drama that aligns with the user's interest in compelling stories.
+- title: A Very Royal Scandal (2024)
+  overview: Based on the real-life 2019 interview between Emily Maitlis and Prince Andrew over the scandalous accusations the Prince faced regarding his involvement with Jeffrey Epstein and Virginia Giuffre. Follow the action of Maitlis and Prince Andrew in the lead-up to the interview, the event itself and the many questions left in its wake that would change their lives forever.
+  genres:
+  - Drama
+  themes:
+  - Real-life events
+  - Scandal
+  relevance: Intriguing real-life drama with themes of scandal and controversy.
+- title: Industry (2020)
+  overview: In the cutthroat world of international finance, a group of young graduates compete for a limited set of permanent positions at a top investment bank in London. The boundaries between colleague, friend, lover, and enemy soon blur as they immerse themselves in a company culture defined as much by sex, drugs and ego as it is by deals and dividends.
+  genres:
+  - Drama
+  themes:
+  - Corporate intrigue
+  - Competition
+  relevance: High-stakes drama with competitive and edgy themes similar to other favorite shows.
+- title: Last Week Tonight with John Oliver (2014)
+  overview: Last Week Tonight with John Oliver is an American late-night talk and news satire television program. L.W.T draws its comedy and satire from recent news stories, political figures, media organizations, pop culture and often aspects of the show itself.
+  genres:
+  - Comedy
+  - News Satire
+  themes:
+  - Political satire
+  - Current events
+  relevance: Matches the user's preference for comedy and satirical take on current events.
 avoid:
 - title: 파친코 (2022)
   overview: 뉴욕 타임스 베스트셀러가 원작인 이 대하드라마는 고국을 떠나 억척스럽게 생존과 번영을 추구하는 한인 이민 가족 4대의 꿈과 희망을 기록한다.
@@ -92,3 +125,53 @@ avoid:
   - Political intrigue
   - Romance
   relevance: Historical drama with themes of political intrigue and romance, which do not align with the user's preferred genres and themes.
+- title: Envidiosa (2024)
+  overview: Cuando sus amigas se empiezan a casar, Vicky se separa de su novio de toda la vida con fobia al compromiso para encontrar alguien que cumpla su sueño de… ser casada.
+  genres:
+  - Romantic Comedy
+  themes:
+  - Romance
+  - Life transitions
+  relevance: Contains romantic comedy themes which the user prefers to avoid.
+- title: Milliardærøya (2024)
+  overview: Den nådeløse eieren av et norsk oppdrettsanlegg planlegger å kjøpe opp en lokal rival for å bli verdens største lakseoppdretter.
+  genres:
+  - Drama
+  themes:
+  - Business
+  - Rivalry
+  relevance: Might not align well with the user's preferred genres and themes.
+- title: From (2022)
+  overview: In a nightmarish town in middle America that traps everyone who enters, unwilling residents fight to stay alive and search for a way out. But they are plagued by the threats of the surrounding forest including terrifying nocturnal creatures.
+  genres:
+  - Horror
+  - Mystery
+  themes:
+  - Survival
+  - Horror
+  relevance: Contains horror elements which the user prefers to avoid.
+- title: Monster (2022) (2022)
+  overview: Anthology series focusing on the lives and crimes of serial killers.
+  genres:
+  - Crime
+  - Drama
+  themes:
+  - True crime
+  - Serial killers
+  relevance: Focuses on crime and horror themes which the user prefers to avoid.
+- title: 'Rescue: HI-Surf (2024)'
+  overview: Follows the personal and professional lives of the heavy-water lifeguards who patrol and protect the North Shore of O'ahu - the most famous and dangerous stretch of coastline in the world.
+  genres:
+  - Drama
+  themes:
+  - Rescue
+  - Professional life
+  relevance: Contains themes of rescue which the user prefers to avoid.
+- title: Agatha All Along (2024)
+  overview: The infamous Agatha Harkness finds herself down and out of power after a suspicious goth Teen helps break her free from a distorted spell. Her interest is piqued when he begs her to take him on the legendary Witches' Road, a magical gauntlet of trials that, if survived, rewards a witch with what they're missing. Together, Agatha and this mysterious Teen pull together a desperate coven, and set off down, down, down The Road...
+  genres:
+  - Fantasy
+  themes:
+  - Magic
+  - Adventure
+  relevance: May not resonate with the user's specific interests despite being in the fantasy genre.

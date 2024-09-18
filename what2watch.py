@@ -226,6 +226,51 @@ def extract_tv_shows_with_gpt(
     )
     return list(tv_shows)
 
+def process_comment_batch_with_gpt(
+    batch_comments: List[str],
+    model: str,
+    max_tokens: int,
+    temperature: float,
+    top_p: float,
+    openai_client: OpenAI
+) -> List[str]:
+    combined_comments = "\n".join(batch_comments)
+    prompt = (
+        "Given the following list of comments from a Reddit thread about TV shows, "
+        "extract and return a list of unique TV show names mentioned. "
+        "Ignore any other text that isn't a TV show name.\n\n"
+        "Comments:\n"
+        f"{combined_comments}\n\n"
+        "Return the list of TV show names, one per line."
+    )
+    try:
+        logging.info("Preparing prompt for OpenAI API")
+        messages = [
+            {
+                "role": "system",
+                "content": "You are a helpful assistant that extracts TV show names from text."
+            },
+            {
+                "role": "user",
+                "content": prompt
+            },
+        ]
+        logging.info("Calling OpenAI API")
+        response = openai_client.chat.completions.create(
+            model=model,
+            messages=messages,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            top_p=top_p
+        )
+        logging.info("Received response from OpenAI API")
+        batch_tv_shows = response.choices[0].message.content.strip().split('\n')
+        batch_tv_shows = [show.strip() for show in batch_tv_shows if show.strip()]
+        return batch_tv_shows
+    except Exception as e:
+        logging.error(f"Error with OpenAI API: {e}")
+        return []
+
 def process_shows(shows: List[str], config: Dict, tvdb_client: TVDB, processed_shows: Dict[str, List[Dict]]) -> str:
     logging.info(f"Processing {len(shows)} shows")
     start_time = time.time()
